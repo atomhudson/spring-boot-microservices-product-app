@@ -53,7 +53,7 @@ public class OrderService {
 //        Call Inventory Service, and place order if product is in stock
 
         InventoryResponse[] inventoryResponses = webClientBuilder.build().get()
-                .uri("http://inventory-service/api/inventory",
+                .uri("http://inventory-services/api/inventory",
                         uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build()
                 )
                 .retrieve()
