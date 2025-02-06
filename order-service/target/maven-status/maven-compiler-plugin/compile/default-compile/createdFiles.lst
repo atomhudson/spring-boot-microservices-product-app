@@ -1,0 +1,11 @@
+com\orderservices\config\WebClientConfig.class
+com\orderservices\dto\InventoryResponse.class
+com\orderservices\model\OrderLineItems.class
+com\orderservices\model\Order.class
+com\orderservices\OrderServicesApplication.class
+com\orderservices\dto\OrderLineItemsDTO.class
+com\orderservices\controller\OrderController.class
+com\orderservices\repository\OrderRepository.class
+com\orderservices\dto\OrderRequest.class
+com\orderservices\dto\OrderResponse.class
+com\orderservices\services\OrderService.class
