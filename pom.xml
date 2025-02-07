@@ -27,7 +27,8 @@
 		<module>discovery-server</module>
 		<module>product-services</module>
 		<module>apigateway</module>
-	</modules>
+        <module>notification-services</module>
+    </modules>
 	<scm>
 		<connection/>
 		<developerConnection/>
