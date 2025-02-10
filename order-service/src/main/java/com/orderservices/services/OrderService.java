@@ -1,18 +1,15 @@
 package com.orderservices.services;
 
-import brave.Span;
 import brave.Tracer;
-import brave.propagation.CurrentTraceContext;
 import com.orderservices.dto.InventoryResponse;
 import com.orderservices.dto.OrderRequest;
-import com.orderservices.event.OrderPlacedEvent;
 import com.orderservices.model.Order;
 import com.orderservices.model.OrderLineItems;
 import com.orderservices.repository.OrderRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.config.Scope;
-import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -30,14 +27,12 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final WebClient.Builder webClientBuilder;
-    private final Tracer tracer;
-    private final KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate;
+    private final StreamBridge streamBridge;
 
-    public OrderService(OrderRepository orderRepository, WebClient.Builder webClient, Tracer tracer, KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate) {
+    public OrderService(OrderRepository orderRepository, WebClient.Builder webClient, StreamBridge streamBridge) {
         this.orderRepository = orderRepository;
         this.webClientBuilder = webClient;
-        this.tracer = tracer;
-        this.kafkaTemplate = kafkaTemplate;
+        this.streamBridge = streamBridge;
     }
 
     public String placeOrder(OrderRequest orderRequest) {
@@ -60,34 +55,34 @@ public class OrderService {
 
         List<String> skuCodes = order.getOrderLineItemsList().stream().map(OrderLineItems::getSkuCode).toList();
 
-//        Call Inventory Service, and place order if product is in stock
-        Span span = tracer.nextSpan().name("InventoryServiceLookup").start();
-        try (Tracer.SpanInScope scope = tracer.withSpanInScope(span)) {
+//      Call Inventory Service, and place order if product is in stock
+        InventoryResponse[] inventoryResponses = webClientBuilder.build().get()
+                .uri("http://inventory-services/api/inventory",
+                        uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build()
+                )
+                .retrieve()
+                .bodyToMono(InventoryResponse[].class)
+                .block();
 
-            InventoryResponse[] inventoryResponses = webClientBuilder.build().get()
-                    .uri("http://inventory-services/api/inventory",
-                            uriBuilder -> uriBuilder.queryParam("skuCode", skuCodes).build()
-                    )
-                    .retrieve()
-                    .bodyToMono(InventoryResponse[].class)
-                    .block();
+        boolean allProductsInStock = Arrays.stream(inventoryResponses)
+                .allMatch(InventoryResponse::getInStock);
 
-            boolean allProductsInStock = Arrays.stream(inventoryResponses)
-                    .allMatch(InventoryResponse::getInStock);
+        if (allProductsInStock) {
+            log.info("Order Placed Successfully {}", order.getOrderNumber());
+            orderRepository.save(order);
+            orderCreatedNotification(order);
+            return "Order placed successfully";
+        } else {
+            throw new IllegalArgumentException("Not enough stock");
+        }
+    }
 
-            if (allProductsInStock) {
-                log.info("Order Placed Successfully {}", order.getId());
-                orderRepository.save(order);
-                kafkaTemplate.send("notificationTopic",new OrderPlacedEvent(order.getOrderNumber()));
-                return "Order placed successfully";
-            } else {
-                throw new IllegalArgumentException("Not enough stock");
-            }
-        } catch (Exception e) {
-            span.tag("error", e.getMessage());
-            throw e;
-        } finally {
-            span.finish();
+    private void orderCreatedNotification(Order orderDetails) {
+        boolean send = streamBridge.send("orderCreatedEvent-out-1", orderDetails);
+        if (send) {
+            log.info("Order created successfully {}", orderDetails.getId());
+        }else{
+            log.warn("Order creation Failed {}", orderDetails.getId());
         }
     }
 }
